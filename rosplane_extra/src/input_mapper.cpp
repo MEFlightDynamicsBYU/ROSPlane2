@@ -62,6 +62,10 @@ InputMapper::InputMapper()
   params_.declare_double("rc_pitch_angle_min_max", 0.5);
   params_.declare_double("rc_altitude_rate", 3.0);
   params_.declare_double("rc_airspeed_rate", 1.0);
+  params_.declare_double("deadzone_size", 0.05);
+  params_.declare_double("max_course_diff_command", 0.25);
+  params_.declare_double("max_altitude_diff_command", 10);
+  params_.declare_double("max_airspeed_diff_command", 5);
 
   // Set the parameter callback, for when parameters are changed.
   parameter_callback_handle_ =
@@ -145,6 +149,28 @@ void InputMapper::set_pitch_override(bool pitch_override)
   param_change_pending_ = true;
 }
 
+double InputMapper::apply_deadzone(double input)
+{
+  if (abs(input) <= params_.get_double("deadzone_size")) {
+    return 0.0;
+  } else {
+    return input;
+  }
+}
+
+double InputMapper::clamp_command_to_state(double command, double state, double max_command_diff)
+{
+  if (abs(command - state) > max_command_diff) {
+    if (command > state) {
+      return state + max_command_diff;
+    } else {
+      return state - max_command_diff;
+    }
+  } else {
+    return command;
+  }
+}
+
 void InputMapper::controller_commands_callback(
   const rosplane_msgs::msg::ControllerCommands::SharedPtr msg)
 {
@@ -169,8 +195,15 @@ void InputMapper::controller_commands_callback(
     mapped_controller_commands_msg_->chi_c = msg->chi_c;
   } else if (aileron_input == "rc_course") {
     set_roll_override(false);
+    norm_aileron = apply_deadzone(norm_aileron);
+    // Apply the rate of change
     mapped_controller_commands_msg_->chi_c +=
       norm_aileron * params_.get_double("rc_course_rate") * elapsed_time;
+    // Limit the max difference between state and command
+    mapped_controller_commands_msg_->chi_c =
+      clamp_command_to_state(mapped_controller_commands_msg_->chi_c, state_msg_->chi,
+                             params_.get_double("max_course_diff_command"));
+    // Wrap the command within +-180 degrees
     mapped_controller_commands_msg_->chi_c = mapped_controller_commands_msg_->chi_c
       - floor((mapped_controller_commands_msg_->chi_c - state_msg_->chi) / (2 * M_PI) + 0.5) * 2
         * M_PI;
@@ -196,8 +229,14 @@ void InputMapper::controller_commands_callback(
     mapped_controller_commands_msg_->h_c = msg->h_c;
   } else if (elevator_input == "rc_altitude") {
     set_pitch_override(false);
+    norm_elevator = apply_deadzone(norm_elevator);
+    // Apply the rate of change
     mapped_controller_commands_msg_->h_c +=
       norm_elevator * params_.get_double("rc_altitude_rate") * elapsed_time;
+    // Limit the max difference between state and command
+    mapped_controller_commands_msg_->h_c =
+      clamp_command_to_state(mapped_controller_commands_msg_->h_c, -state_msg_->position[2],
+                             params_.get_double("max_altitude_diff_command"));
   } else if (elevator_input == "rc_pitch_angle") {
     set_pitch_override(true);
     mapped_controller_commands_msg_->theta_c =
@@ -218,8 +257,14 @@ void InputMapper::controller_commands_callback(
   if (throttle_input == "path_follower") {
     mapped_controller_commands_msg_->va_c = msg->va_c;
   } else if (throttle_input == "rc_airspeed") {
+    norm_throttle = apply_deadzone(norm_throttle);
+    // Apply the rate of change
     mapped_controller_commands_msg_->va_c +=
       norm_throttle * params_.get_double("rc_airspeed_rate") * elapsed_time;
+    // Limit the max difference between state and command
+    mapped_controller_commands_msg_->va_c =
+      clamp_command_to_state(mapped_controller_commands_msg_->va_c, state_msg_->va,
+                             params_.get_double("max_airspeed_diff_command"));
   } else if (throttle_input == "rc_throttle") {
     mapped_controller_commands_msg_->va_c = state_msg_->va;
   } else {

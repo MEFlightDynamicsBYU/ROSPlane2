@@ -52,6 +52,14 @@ public:
    *   the altitude command.
    * - `rc_airspeed_rate`: The max rate in meters per second at which the RC controller can adjust
    *   the airspeed command.
+   * - `deadzone_size`: The size of deviations on the RC transmitter to ignore, avoiding gradual
+   *   drift of any rate control mode.
+   * - `max_course_diff_command`: The maximum allowed difference between the commanded course
+   *   and the vehicle's current state, avoiding command runaway.
+   * - `max_altitude_diff_command`: The maximum allowed difference between the commanded altitude
+   *   and the vehicle's current state, avoiding command runaway.
+   * - `max_airspeed_diff_command`: The maximum allowed difference between the commanded airspeed
+   *   and the vehicle's current state, avoiding command runaway.
    */
   InputMapper();
 
@@ -164,6 +172,15 @@ private:
    * Helper function for knowing when to call a ROS service to change pitch override.
    */
   void set_pitch_override(bool pitch_override);
+
+  /**
+   * Helper function for applying deadzones to RC input.
+   */
+  double apply_deadzone(double input);
+  /**
+   * Helper function for keeping the state of the aircraft and the command close to each other.
+   */
+  double clamp_command_to_state(double command, double state, double command_diff);
 
   /**
    * Callback for set_param_timer_.
